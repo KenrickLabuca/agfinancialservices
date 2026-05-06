@@ -507,6 +507,7 @@ function PrintableApplicationForm({ values, onChange, isReadOnly = false }) {
 function App() {
   const [activeTab, setActiveTab] = useState("intro");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
   const [form, setForm] = useState(APPLICATION_TEMPLATE);
   const [savedRecords, setSavedRecords] = useState([]);
   const [selectedRecordId, setSelectedRecordId] = useState("");
@@ -600,6 +601,14 @@ function App() {
     }
 
     loadRecords();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setIsBooting(false);
+    }, 1400);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -788,6 +797,21 @@ function App() {
     });
   };
 
+  if (isBooting) {
+    return (
+      <main className="boot-screen">
+        <div className="boot-card">
+          <div className="boot-logo">A&amp;G</div>
+          <h1>A&amp;G Financial Services</h1>
+          <p>Preparing your lending dashboard...</p>
+          <div className="boot-progress">
+            <span />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="container">
       <header className="header">
@@ -814,7 +838,7 @@ function App() {
               className={activeTab === "intro" ? "active" : ""}
               onClick={() => setActiveTab("intro")}
             >
-              Intro
+              Home
             </button>
             {isAdmin && (
               <>
@@ -888,7 +912,7 @@ function App() {
         <section className="dashboard-main">
       {activeTab === "intro" && (
         <section className="card">
-          <h2>Welcome to A&amp;G Loan Application</h2>
+          <h2>Home</h2>
           <p className="hint">
             You will receive a printable form to be completed and submitted for processing.
           </p>
