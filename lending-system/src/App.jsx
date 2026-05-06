@@ -1010,10 +1010,28 @@ function App() {
       const { error } = await supabase.from(INQUIRY_TABLE).insert(toInquiryInsertPayload(contactForm));
       if (error) throw error;
 
-      setInquiries((prev) => [localInquiry, ...prev]);
-      setSelectedInquiryId(localInquiry.id);
+      // Fetch the real DB row so later updates use the correct UUID id.
+      let persistedInquiry = localInquiry;
+      try {
+        const { data: inquiryRows, error: inquiryLoadError } = await supabase
+          .from(INQUIRY_TABLE)
+          .select("*")
+          .eq("full_name", localInquiry.fullName)
+          .eq("phone", localInquiry.phone)
+          .eq("message", localInquiry.message)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (!inquiryLoadError && Array.isArray(inquiryRows) && inquiryRows.length > 0) {
+          persistedInquiry = fromInquiryRow(inquiryRows[0]);
+        }
+      } catch {
+        // Keep local fallback if we cannot reload inserted row details.
+      }
+
+      setInquiries((prev) => [persistedInquiry, ...prev.filter((item) => item.id !== persistedInquiry.id)]);
+      setSelectedInquiryId(persistedInquiry.id);
       setInquiryNoteDraft("");
-      const notifyResult = await sendInquiryEmailNotification(localInquiry);
+      const notifyResult = await sendInquiryEmailNotification(persistedInquiry);
       openContactPopup(
         "success",
         "Inquiry Submitted",
@@ -1040,6 +1058,7 @@ function App() {
 
   const updateInquiryStatus = async (status) => {
     if (!selectedInquiryId) return;
+    const previousInquiries = inquiries;
     setInquiries((prev) =>
       prev.map((inquiry) => (inquiry.id === selectedInquiryId ? { ...inquiry, status } : inquiry))
     );
@@ -1052,7 +1071,13 @@ function App() {
         .eq("id", selectedInquiryId);
       if (error) throw error;
     } catch {
+      setInquiries(previousInquiries);
       setStatusMessage("Failed to update inquiry status in Supabase.");
+      openContactPopup(
+        "error",
+        "Update Failed",
+        "Could not save inquiry status in Supabase. Please try again."
+      );
     }
   };
 
