@@ -46,6 +46,15 @@ const APPLICATION_TEMPLATE = {
   coMaker2Date: "",
 };
 
+const CONTACT_TEMPLATE = {
+  fullName: "",
+  phone: "",
+  email: "",
+  address: "",
+  preferredLoanAmount: "",
+  message: "",
+};
+
 const TERM_DAYS = {
   days: 1,
   weeks: 7,
@@ -512,6 +521,8 @@ function App() {
   const [adminPasscodeInput, setAdminPasscodeInput] = useState("");
   const [showAdminPasscode, setShowAdminPasscode] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState("");
+  const [contactForm, setContactForm] = useState(CONTACT_TEMPLATE);
+  const [contactStatus, setContactStatus] = useState("");
   const [form, setForm] = useState(APPLICATION_TEMPLATE);
   const [savedRecords, setSavedRecords] = useState([]);
   const [selectedRecordId, setSelectedRecordId] = useState("");
@@ -806,6 +817,22 @@ function App() {
     setAdminAccessError("Invalid admin passcode.");
   };
 
+  const updateContactField = (event) => {
+    const { name, value } = event.target;
+    setContactForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitContactForm = (event) => {
+    event.preventDefault();
+    if (!contactForm.fullName.trim() || !contactForm.phone.trim() || !contactForm.message.trim()) {
+      setContactStatus("Please fill in Full Name, Phone, and Message.");
+      return;
+    }
+
+    setContactStatus("Thank you. Your inquiry has been received. Our team will contact you soon.");
+    setContactForm(CONTACT_TEMPLATE);
+  };
+
   const exitAdminMode = () => {
     setIsAdmin(false);
     setActiveTab("intro");
@@ -860,6 +887,13 @@ function App() {
               onClick={() => setActiveTab("intro")}
             >
               Home
+            </button>
+            <button
+              type="button"
+              className={activeTab === "contact" ? "active" : ""}
+              onClick={() => setActiveTab("contact")}
+            >
+              Contact Us
             </button>
             {isAdmin && (
               <>
@@ -964,6 +998,83 @@ function App() {
               </button>
             )}
           </div>
+        </section>
+      )}
+
+      {activeTab === "contact" && (
+        <section className="card">
+          <h2>Contact Us</h2>
+          <p className="hint">
+            Interested to avail a loan? Fill out the form below and our team will contact you.
+          </p>
+          <form className="contact-form" onSubmit={submitContactForm}>
+            <div className="grid">
+              <label>
+                <span>Full Name</span>
+                <input
+                  type="text"
+                  name="fullName"
+                  value={contactForm.fullName}
+                  onChange={updateContactField}
+                  placeholder="Enter your full name"
+                />
+              </label>
+              <label>
+                <span>Phone Number</span>
+                <input
+                  type="text"
+                  name="phone"
+                  value={contactForm.phone}
+                  onChange={updateContactField}
+                  placeholder="09xx xxx xxxx"
+                />
+              </label>
+              <label>
+                <span>Email Address</span>
+                <input
+                  type="email"
+                  name="email"
+                  value={contactForm.email}
+                  onChange={updateContactField}
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label>
+                <span>Address</span>
+                <input
+                  type="text"
+                  name="address"
+                  value={contactForm.address}
+                  onChange={updateContactField}
+                  placeholder="City / Barangay"
+                />
+              </label>
+              <label>
+                <span>Preferred Loan Amount</span>
+                <input
+                  type="text"
+                  name="preferredLoanAmount"
+                  value={contactForm.preferredLoanAmount}
+                  onChange={updateContactField}
+                  placeholder="e.g. 30,000"
+                />
+              </label>
+            </div>
+            <label className="contact-message-field">
+              <span>Message / Purpose</span>
+              <textarea
+                name="message"
+                value={contactForm.message}
+                onChange={updateContactField}
+                rows={5}
+                placeholder="Tell us your purpose and preferred schedule."
+              />
+            </label>
+            {contactStatus && <small className="status contact-status">{contactStatus}</small>}
+            <div className="actions">
+              <button type="submit">Submit Inquiry</button>
+            </div>
+          </form>
         </section>
       )}
 
@@ -1234,6 +1345,7 @@ function App() {
           </div>
         </div>
       )}
+      <footer className="app-footer">A&amp;G Financial Services {new Date().getFullYear()}</footer>
     </main>
   );
 }
