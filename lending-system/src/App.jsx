@@ -508,6 +508,10 @@ function App() {
   const [activeTab, setActiveTab] = useState("intro");
   const [isAdmin, setIsAdmin] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminPasscodeInput, setAdminPasscodeInput] = useState("");
+  const [showAdminPasscode, setShowAdminPasscode] = useState(false);
+  const [adminAccessError, setAdminAccessError] = useState("");
   const [form, setForm] = useState(APPLICATION_TEMPLATE);
   const [savedRecords, setSavedRecords] = useState([]);
   const [selectedRecordId, setSelectedRecordId] = useState("");
@@ -771,18 +775,35 @@ function App() {
   };
 
   const requestAdminAccess = () => {
-    const enteredPasscode = window.prompt("Enter admin passcode");
-    if (!enteredPasscode) return;
+    setAdminPasscodeInput("");
+    setShowAdminPasscode(false);
+    setAdminAccessError("");
+    setShowAdminModal(true);
+  };
 
-    if (enteredPasscode === ADMIN_PASSCODE) {
-      setIsAdmin(true);
-      setActiveTab("entry");
-      setStatusMessage("");
+  const closeAdminAccessModal = () => {
+    setShowAdminModal(false);
+    setAdminPasscodeInput("");
+    setShowAdminPasscode(false);
+    setAdminAccessError("");
+  };
+
+  const submitAdminAccess = (event) => {
+    event.preventDefault();
+    if (!adminPasscodeInput.trim()) {
+      setAdminAccessError("Please enter admin passcode.");
       return;
     }
 
-    setStatusMessage("Invalid admin passcode.");
-    setActiveTab("intro");
+    if (adminPasscodeInput === ADMIN_PASSCODE) {
+      setIsAdmin(true);
+      setActiveTab("entry");
+      setStatusMessage("");
+      closeAdminAccessModal();
+      return;
+    }
+
+    setAdminAccessError("Invalid admin passcode.");
   };
 
   const exitAdminMode = () => {
@@ -1168,6 +1189,51 @@ function App() {
       )}
         </section>
       </div>
+      {showAdminModal && (
+        <div className="admin-modal-overlay" role="presentation" onClick={closeAdminAccessModal}>
+          <div
+            className="admin-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-access-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="admin-access-title">Admin Access</h3>
+            <p>Enter passcode to open admin tools.</p>
+            <form onSubmit={submitAdminAccess} className="admin-modal-form">
+              <label>
+                <span>Passcode</span>
+                <div className="admin-passcode-input-wrap">
+                  <input
+                    type={showAdminPasscode ? "text" : "password"}
+                    value={adminPasscodeInput}
+                    onChange={(event) => {
+                      setAdminPasscodeInput(event.target.value);
+                      if (adminAccessError) setAdminAccessError("");
+                    }}
+                    placeholder="Enter admin passcode"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="passcode-toggle-btn"
+                    onClick={() => setShowAdminPasscode((prev) => !prev)}
+                  >
+                    {showAdminPasscode ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </label>
+              {adminAccessError && <small className="admin-error-text">{adminAccessError}</small>}
+              <div className="admin-modal-actions">
+                <button type="submit">Open Admin</button>
+                <button type="button" className="ghost" onClick={closeAdminAccessModal}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
