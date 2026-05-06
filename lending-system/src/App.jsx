@@ -44,6 +44,7 @@ const APPLICATION_TEMPLATE = {
   coMaker2Name: "",
   coMaker2Signature: "",
   coMaker2Date: "",
+  loanStatus: "draft",
 };
 
 const CONTACT_TEMPLATE = {
@@ -54,6 +55,7 @@ const CONTACT_TEMPLATE = {
   preferredLoanAmount: "",
   message: "",
 };
+const INQUIRY_STATUS_OPTIONS = ["new", "contacted", "qualified", "declined"];
 
 const TERM_DAYS = {
   days: 1,
@@ -98,8 +100,10 @@ const FORM_FIELDS = {
   releaseDate: "Date Release",
 };
 const SUPABASE_TABLE = "loan_applications";
+const INQUIRY_TABLE = "contact_inquiries";
 const SHOW_CONNECTION_DEBUG = import.meta.env.DEV;
 const ADMIN_PASSCODE = import.meta.env.VITE_ADMIN_PASSCODE || "admin123";
+const WEB3FORMS_ACCESS_KEY = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY || "";
 
 function toNumber(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -203,10 +207,71 @@ function fromDatabaseRow(row) {
   return {
     id: row.id,
     ...payload,
+    loanStatus: payload.loanStatus || "draft",
     paymentLogs,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function toInquiryInsertPayload(values) {
+  return {
+    full_name: values.fullName?.trim() || "",
+    phone: values.phone?.trim() || "",
+    email: values.email?.trim() || "",
+    address: values.address?.trim() || "",
+    preferred_loan_amount: values.preferredLoanAmount?.trim() || "",
+    message: values.message?.trim() || "",
+    status: "new",
+    follow_up_notes: "",
+  };
+}
+
+function fromInquiryRow(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name || "",
+    phone: row.phone || "",
+    email: row.email || "",
+    address: row.address || "",
+    preferredLoanAmount: row.preferred_loan_amount || "",
+    message: row.message || "",
+    status: row.status || "new",
+    followUpNotes: row.follow_up_notes || "",
+    submittedAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+async function sendInquiryEmailNotification(inquiry) {
+  if (!WEB3FORMS_ACCESS_KEY) {
+    return { sent: false, reason: "missing_key" };
+  }
+
+  try {
+    const response = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_key: WEB3FORMS_ACCESS_KEY,
+        subject: `New loan inquiry: ${inquiry.fullName || "Unknown"}`,
+        from_name: "A&G Financial Contact Us",
+        name: inquiry.fullName || "",
+        email: inquiry.email || "",
+        message: [
+          `Phone: ${inquiry.phone || "-"}`,
+          `Address: ${inquiry.address || "-"}`,
+          `Preferred Amount: ${inquiry.preferredLoanAmount || "-"}`,
+          "",
+          `Message: ${inquiry.message || "-"}`,
+        ].join("\n"),
+      }),
+    });
+
+    const payload = await response.json();
+    return { sent: Boolean(payload?.success) };
+  } catch {
+    return { sent: false, reason: "request_failed" };
+  }
 }
 
 function renderFormFields(values, onChange) {
@@ -243,6 +308,17 @@ function renderFormFields(values, onChange) {
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
+        </select>
+      </label>
+
+      <label>
+        <span>Loan Status</span>
+        <select name="loanStatus" value={values.loanStatus || "draft"} onChange={onChange}>
+          <option value="draft">Draft</option>
+          <option value="submitted">Submitted</option>
+          <option value="approved">Approved</option>
+          <option value="released">Released</option>
+          <option value="closed">Closed</option>
         </select>
       </label>
     </>
@@ -522,7 +598,15 @@ function App() {
   const [showAdminPasscode, setShowAdminPasscode] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState("");
   const [contactForm, setContactForm] = useState(CONTACT_TEMPLATE);
-  const [contactStatus, setContactStatus] = useState("");
+  const [showContactPopup, setShowContactPopup] = useState(false);
+  const [contactPopupType, setContactPopupType] = useState("success");
+  const [contactPopupTitle, setContactPopupTitle] = useState("");
+  const [contactPopupMessage, setContactPopupMessage] = useState("");
+  const [inquiries, setInquiries] = useState([]);
+  const [selectedInquiryId, setSelectedInquiryId] = useState("");
+  const [inquiryNoteDraft, setInquiryNoteDraft] = useState("");
+  const [inquirySearch, setInquirySearch] = useState("");
+  const [inquiryStatusFilter, setInquiryStatusFilter] = useState("all");
   const [form, setForm] = useState(APPLICATION_TEMPLATE);
   const [savedRecords, setSavedRecords] = useState([]);
   const [selectedRecordId, setSelectedRecordId] = useState("");
@@ -572,6 +656,57 @@ function App() {
         .includes(keyword)
     );
   }, [savedRecords, recordSearch]);
+  const portfolioReleased = useMemo(
+    () => savedRecords.reduce((sum, record) => sum + toNumber(record.amountApplied), 0),
+    [savedRecords]
+  );
+  const portfolioCollected = useMemo(
+    () =>
+      savedRecords.reduce(
+        (sum, record) =>
+          sum + (record.paymentLogs || []).reduce((subtotal, entry) => subtotal + toNumber(entry.amount), 0),
+        0
+      ),
+    [savedRecords]
+  );
+  const portfolioOutstanding = useMemo(
+    () =>
+      savedRecords.reduce((sum, record) => {
+        const borrowerSchedule = buildSchedule(record);
+        const borrowerCollected = (record.paymentLogs || []).reduce(
+          (subtotal, entry) => subtotal + toNumber(entry.amount),
+          0
+        );
+        return sum + Math.max(borrowerSchedule.totalPaid - borrowerCollected, 0);
+      }, 0),
+    [savedRecords]
+  );
+  const nextDueDate = useMemo(() => {
+    if (!selectedSchedule) return "";
+    const paidCount = selectedPaymentLogs.length;
+    return selectedSchedule.rows[Math.min(paidCount, selectedSchedule.rows.length - 1)]?.date || "";
+  }, [selectedSchedule, selectedPaymentLogs]);
+  const isOverdue = useMemo(() => {
+    if (!nextDueDate || remainingBalance <= 0) return false;
+    return new Date(nextDueDate).getTime() < Date.now();
+  }, [nextDueDate, remainingBalance]);
+  const selectedInquiry = useMemo(
+    () => inquiries.find((inquiry) => inquiry.id === selectedInquiryId),
+    [inquiries, selectedInquiryId]
+  );
+  const filteredInquiries = useMemo(() => {
+    const keyword = inquirySearch.trim().toLowerCase();
+    return inquiries.filter((inquiry) => {
+      const matchesStatus =
+        inquiryStatusFilter === "all" ? true : inquiry.status === inquiryStatusFilter;
+      const matchesKeyword = keyword
+        ? `${inquiry.fullName || ""} ${inquiry.phone || ""}`
+            .toLowerCase()
+            .includes(keyword)
+        : true;
+      return matchesStatus && matchesKeyword;
+    });
+  }, [inquiries, inquirySearch, inquiryStatusFilter]);
 
   const checkSupabaseConnection = async () => {
     if (!supabase) {
@@ -612,6 +747,18 @@ function App() {
       } catch {
         setConnectionStatus("disconnected");
         setStatusMessage("Cannot load from Supabase. Check your env keys and table setup.");
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from(INQUIRY_TABLE)
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        setInquiries((data || []).map(fromInquiryRow));
+      } catch {
+        // Keep inquiry UI available even if table is not yet created.
       }
     }
 
@@ -822,15 +969,112 @@ function App() {
     setContactForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const submitContactForm = (event) => {
+  const openContactPopup = (type, title, message) => {
+    setContactPopupType(type);
+    setContactPopupTitle(title);
+    setContactPopupMessage(message);
+    setShowContactPopup(true);
+  };
+
+  const submitContactForm = async (event) => {
     event.preventDefault();
     if (!contactForm.fullName.trim() || !contactForm.phone.trim() || !contactForm.message.trim()) {
-      setContactStatus("Please fill in Full Name, Phone, and Message.");
+      openContactPopup("error", "Submission Failed", "Please fill in Full Name, Phone, and Message.");
       return;
     }
 
-    setContactStatus("Thank you. Your inquiry has been received. Our team will contact you soon.");
-    setContactForm(CONTACT_TEMPLATE);
+    const localInquiry = {
+      id: `${Date.now()}`,
+      ...contactForm,
+      status: "new",
+      followUpNotes: "",
+      submittedAt: new Date().toISOString(),
+    };
+    if (!supabase) {
+      setInquiries((prev) => [localInquiry, ...prev]);
+      setSelectedInquiryId(localInquiry.id);
+      setInquiryNoteDraft("");
+      const notifyResult = await sendInquiryEmailNotification(localInquiry);
+      openContactPopup(
+        "error",
+        "Submission Failed",
+        notifyResult.sent
+          ? "Inquiry saved locally and email sent, but Supabase is not configured."
+          : "Inquiry saved locally only. Supabase is not configured."
+      );
+      setContactForm(CONTACT_TEMPLATE);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from(INQUIRY_TABLE).insert(toInquiryInsertPayload(contactForm));
+      if (error) throw error;
+
+      setInquiries((prev) => [localInquiry, ...prev]);
+      setSelectedInquiryId(localInquiry.id);
+      setInquiryNoteDraft("");
+      const notifyResult = await sendInquiryEmailNotification(localInquiry);
+      openContactPopup(
+        "success",
+        "Inquiry Submitted",
+        notifyResult.sent
+          ? "Your inquiry synced to Supabase and email notification was sent."
+          : "Your inquiry synced to Supabase successfully. Email notification is not configured yet."
+      );
+      setContactForm(CONTACT_TEMPLATE);
+    } catch {
+      setInquiries((prev) => [localInquiry, ...prev]);
+      setSelectedInquiryId(localInquiry.id);
+      setInquiryNoteDraft("");
+      const notifyResult = await sendInquiryEmailNotification(localInquiry);
+      openContactPopup(
+        "error",
+        "Submission Failed",
+        notifyResult.sent
+          ? "Inquiry saved locally and email sent, but Supabase sync failed."
+          : "Inquiry saved locally only. Please check Supabase configuration."
+      );
+      setContactForm(CONTACT_TEMPLATE);
+    }
+  };
+
+  const updateInquiryStatus = async (status) => {
+    if (!selectedInquiryId) return;
+    setInquiries((prev) =>
+      prev.map((inquiry) => (inquiry.id === selectedInquiryId ? { ...inquiry, status } : inquiry))
+    );
+
+    if (!supabase) return;
+    try {
+      const { error } = await supabase
+        .from(INQUIRY_TABLE)
+        .update({ status })
+        .eq("id", selectedInquiryId);
+      if (error) throw error;
+    } catch {
+      setStatusMessage("Failed to update inquiry status in Supabase.");
+    }
+  };
+
+  const saveInquiryFollowUp = async () => {
+    if (!selectedInquiryId) return;
+    const notes = inquiryNoteDraft.trim();
+    setInquiries((prev) =>
+      prev.map((inquiry) =>
+        inquiry.id === selectedInquiryId ? { ...inquiry, followUpNotes: notes } : inquiry
+      )
+    );
+
+    if (!supabase) return;
+    try {
+      const { error } = await supabase
+        .from(INQUIRY_TABLE)
+        .update({ follow_up_notes: notes })
+        .eq("id", selectedInquiryId);
+      if (error) throw error;
+    } catch {
+      setStatusMessage("Failed to save follow-up notes in Supabase.");
+    }
   };
 
   const exitAdminMode = () => {
@@ -886,14 +1130,14 @@ function App() {
               className={activeTab === "intro" ? "active" : ""}
               onClick={() => setActiveTab("intro")}
             >
-              Home
+              <span className="tab-icon" aria-hidden="true">🏠</span>Home
             </button>
             <button
               type="button"
               className={activeTab === "contact" ? "active" : ""}
               onClick={() => setActiveTab("contact")}
             >
-              Contact Us
+              <span className="tab-icon" aria-hidden="true">✉️</span>Contact Us
             </button>
             {isAdmin && (
               <>
@@ -902,7 +1146,7 @@ function App() {
                   className={activeTab === "entry" ? "active" : ""}
                   onClick={() => setActiveTab("entry")}
                 >
-                  Application Entry
+                  <span className="tab-icon" aria-hidden="true">📝</span>Application Entry
                 </button>
                 <button
                   type="button"
@@ -915,14 +1159,21 @@ function App() {
                       : "Enter Amount of Loan Applied and Term first"
                   }
                 >
-                  Computation Sheet
+                  <span className="tab-icon" aria-hidden="true">🧮</span>Computation Sheet
                 </button>
                 <button
                   type="button"
                   className={activeTab === "records" ? "active" : ""}
                   onClick={() => setActiveTab("records")}
                 >
-                  Saved Records ({savedRecords.length})
+                  <span className="tab-icon" aria-hidden="true">📁</span>Saved Records ({savedRecords.length})
+                </button>
+                <button
+                  type="button"
+                  className={activeTab === "inquiries" ? "active" : ""}
+                  onClick={() => setActiveTab("inquiries")}
+                >
+                  <span className="tab-icon" aria-hidden="true">📬</span>Inquiries ({inquiries.length})
                 </button>
                 {selectedRecord && (
                   <>
@@ -931,19 +1182,19 @@ function App() {
                       className={activeTab === "recordView" ? "active" : ""}
                       onClick={() => setActiveTab("recordView")}
                     >
-                      View Saved Sheet
+                      <span className="tab-icon" aria-hidden="true">👁️</span>View Saved Sheet
                     </button>
                     <button
                       type="button"
                       className={activeTab === "recordEdit" ? "active" : ""}
                       onClick={() => setActiveTab("recordEdit")}
                     >
-                      Edit Saved Form
+                      <span className="tab-icon" aria-hidden="true">✏️</span>Edit Saved Form
                     </button>
                   </>
                 )}
                 <button type="button" className="ghost-admin-btn" onClick={exitAdminMode}>
-                  Exit Admin
+                  <span className="tab-icon" aria-hidden="true">🔒</span>Exit Admin
                 </button>
               </>
             )}
@@ -960,6 +1211,22 @@ function App() {
             <article>
               <span>Selected Borrower</span>
               <strong>{selectedRecord?.name || "-"}</strong>
+            </article>
+            <article>
+              <span>Total Released</span>
+              <strong>{formatCurrency(portfolioReleased)}</strong>
+            </article>
+            <article>
+              <span>Total Collected</span>
+              <strong>{formatCurrency(portfolioCollected)}</strong>
+            </article>
+            <article>
+              <span>Outstanding</span>
+              <strong>{formatCurrency(portfolioOutstanding)}</strong>
+            </article>
+            <article>
+              <span>Inquiries</span>
+              <strong>{inquiries.length}</strong>
             </article>
           </div>
         </aside>
@@ -1070,11 +1337,105 @@ function App() {
                 placeholder="Tell us your purpose and preferred schedule."
               />
             </label>
-            {contactStatus && <small className="status contact-status">{contactStatus}</small>}
             <div className="actions">
               <button type="submit">Submit Inquiry</button>
             </div>
           </form>
+        </section>
+      )}
+
+      {isAdmin && activeTab === "inquiries" && (
+        <section className="card">
+          <h2>Admin Inquiry Management</h2>
+          <p className="hint">Review Contact Us submissions, update status, and record follow-up notes.</p>
+          <div className="inquiry-filters">
+            <input
+              type="text"
+              value={inquirySearch}
+              onChange={(event) => setInquirySearch(event.target.value)}
+              placeholder="Search name or phone..."
+            />
+            <select
+              value={inquiryStatusFilter}
+              onChange={(event) => setInquiryStatusFilter(event.target.value)}
+            >
+              <option value="all">All Statuses</option>
+              {INQUIRY_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </div>
+          {inquiries.length === 0 ? (
+            <p className="hint">No inquiries yet. Submit from Contact Us page to preview this tab.</p>
+          ) : filteredInquiries.length === 0 ? (
+            <p className="hint">No inquiry matched your search/filter.</p>
+          ) : (
+            <div className="inquiry-layout">
+              <ul className="inquiry-list">
+                {filteredInquiries.map((inquiry) => (
+                  <li key={inquiry.id} className={selectedInquiryId === inquiry.id ? "active" : ""}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedInquiryId(inquiry.id);
+                        setInquiryNoteDraft(inquiry.followUpNotes || "");
+                      }}
+                    >
+                      <strong>{inquiry.fullName}</strong>
+                      <span>{inquiry.phone}</span>
+                      <span className={`inquiry-status ${inquiry.status}`}>{inquiry.status}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <section className="inquiry-detail">
+                {selectedInquiry ? (
+                  <>
+                    <h3>{selectedInquiry.fullName}</h3>
+                    <p className="hint">
+                      Contact: {selectedInquiry.phone} {selectedInquiry.email ? `| ${selectedInquiry.email}` : ""}
+                    </p>
+                    <p className="hint">Address: {selectedInquiry.address || "-"}</p>
+                    <p className="hint">Preferred Amount: {selectedInquiry.preferredLoanAmount || "-"}</p>
+                    <p className="hint">Message: {selectedInquiry.message || "-"}</p>
+
+                    <label>
+                      <span>Status</span>
+                      <select
+                        value={selectedInquiry.status}
+                        onChange={(event) => updateInquiryStatus(event.target.value)}
+                      >
+                        {INQUIRY_STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Follow-up Notes</span>
+                      <textarea
+                        rows={5}
+                        value={inquiryNoteDraft}
+                        onChange={(event) => setInquiryNoteDraft(event.target.value)}
+                        placeholder="Add callback result, document request, or next steps..."
+                      />
+                    </label>
+                    <div className="actions">
+                      <button type="button" onClick={saveInquiryFollowUp}>
+                        Save Follow-up Notes
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="hint">Select an inquiry to manage details.</p>
+                )}
+              </section>
+            </div>
+          )}
         </section>
       )}
 
@@ -1135,6 +1496,12 @@ function App() {
                 <li key={record.id}>
                   <h3>{record.name}</h3>
                   <p>
+                    Status:{" "}
+                    <span className={`loan-status-badge ${record.loanStatus || "draft"}`}>
+                      {record.loanStatus || "draft"}
+                    </span>
+                  </p>
+                  <p>
                     Applied: {formatCurrency(toNumber(record.amountApplied))} | Term: {record.termValue}{" "}
                     {record.termUnit} | Mode: {record.paymentFrequency}
                   </p>
@@ -1172,6 +1539,11 @@ function App() {
               <p className="hint">
                 This matches the computation-style table in your reference sheet.
               </p>
+              <div className="actions">
+                <button type="button" onClick={() => window.print()}>
+                  Print Saved Sheet
+                </button>
+              </div>
               <div className="summary-grid">
                 <article>
                   <span>Lender Name</span>
@@ -1196,6 +1568,14 @@ function App() {
                 <article>
                   <span>Remaining Balance</span>
                   <strong>{formatCurrency(remainingBalance)}</strong>
+                </article>
+                <article>
+                  <span>Next Due Date</span>
+                  <strong>{nextDueDate || "-"}</strong>
+                </article>
+                <article>
+                  <span>Collection Status</span>
+                  <strong>{isOverdue ? "Overdue" : "On Track"}</strong>
                 </article>
               </div>
             </section>
@@ -1286,6 +1666,9 @@ function App() {
             <div className="grid">{renderFormFields(editForm, updateEditField)}</div>
             <div className="actions">
               <button type="button" onClick={saveRecordEdits}>Save Changes</button>
+              <button type="button" onClick={() => window.print()}>
+                Print Preview
+              </button>
               <button type="button" className="ghost" onClick={() => setActiveTab("recordView")}>
                 Cancel
               </button>
@@ -1342,6 +1725,24 @@ function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showContactPopup && (
+        <div
+          className="contact-popup-overlay"
+          role="presentation"
+          onClick={() => setShowContactPopup(false)}
+        >
+          <div className="contact-popup-card" role="dialog" aria-modal="true">
+            <div className={`contact-popup-icon ${contactPopupType}`} aria-hidden="true">
+              {contactPopupType === "success" ? "✓" : "!"}
+            </div>
+            <h3>{contactPopupTitle}</h3>
+            <p>{contactPopupMessage}</p>
+            <button type="button" onClick={() => setShowContactPopup(false)}>
+              Okay
+            </button>
           </div>
         </div>
       )}

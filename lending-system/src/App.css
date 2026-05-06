@@ -155,6 +155,64 @@
   color: #1f2937;
 }
 
+.contact-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.contact-popup-card {
+  width: min(380px, 100%);
+  background: #fff;
+  border: 1px solid #dbe3f2;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  padding: 20px;
+  text-align: center;
+}
+
+.contact-popup-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  font-weight: 800;
+  margin: 0 auto 10px;
+}
+
+.contact-popup-icon.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.contact-popup-card h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.contact-popup-card p {
+  margin: 8px 0 14px;
+  color: #475569;
+}
+
+.contact-popup-card button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+}
+
 .app-footer {
   text-align: center;
   margin-top: 16px;
@@ -322,12 +380,46 @@
 .dashboard-sidebar .tabs button {
   width: 100%;
   text-align: left;
+  position: relative;
+  overflow: hidden;
+  padding-left: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-icon {
+  font-size: 14px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+  display: inline-block;
+}
+
+.dashboard-sidebar .tabs button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 16%;
+  width: 4px;
+  height: 68%;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  transition: background 0.18s ease;
 }
 
 .dashboard-sidebar .tabs button:hover {
   background: #1d4ed8;
   border-color: #1d4ed8;
   color: #ffffff;
+}
+
+.dashboard-sidebar .tabs button:hover::before {
+  background: #93c5fd;
+}
+
+.dashboard-sidebar .tabs .active::before {
+  background: #bfdbfe;
 }
 
 .dashboard-sidebar .tabs .active:hover {
@@ -571,6 +663,41 @@ td:nth-child(2) {
   background: #dc2626;
 }
 
+.loan-status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.loan-status-badge.draft {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.loan-status-badge.submitted {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.loan-status-badge.approved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.loan-status-badge.released {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.loan-status-badge.closed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .record-search {
   margin-bottom: 12px;
 }
@@ -595,8 +722,105 @@ td:nth-child(2) {
 }
 
 .contact-status {
-  color: #1e3a8a;
   font-weight: 700;
+}
+
+.contact-status.success {
+  color: #166534;
+}
+
+.contact-status.warning {
+  color: #b45309;
+}
+
+.contact-status.error {
+  color: #b91c1c;
+}
+
+.inquiry-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.inquiry-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.inquiry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.inquiry-list li button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #dbe3f2;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.inquiry-list li.active button {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.inquiry-list strong {
+  color: #0f172a;
+}
+
+.inquiry-list span {
+  font-size: 12px;
+  color: #475569;
+}
+
+.inquiry-status {
+  justify-self: start;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+}
+
+.inquiry-status.new {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.inquiry-status.contacted {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.inquiry-status.qualified {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.inquiry-status.declined {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.inquiry-detail {
+  border: 1px solid #dbe3f2;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+  display: grid;
+  gap: 8px;
 }
 
 .printable-form {
@@ -704,5 +928,13 @@ td:nth-child(2) {
 
   .dashboard-sidebar {
     position: static;
+  }
+
+  .inquiry-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .inquiry-filters {
+    grid-template-columns: 1fr;
   }
 }
