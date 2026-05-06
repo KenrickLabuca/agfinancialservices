@@ -324,6 +324,17 @@
   text-align: left;
 }
 
+.dashboard-sidebar .tabs button:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
+}
+
+.dashboard-sidebar .tabs .active:hover {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: #ffffff;
+}
+
 .dashboard-main {
   display: grid;
   gap: 14px;
@@ -446,6 +457,11 @@ textarea {
 .ghost-admin-btn {
   background: #e2e8f0 !important;
   color: #1f2937 !important;
+}
+
+.ghost-admin-btn:hover {
+  background: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 
 .summary-grid {
