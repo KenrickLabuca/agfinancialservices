@@ -643,6 +643,17 @@ function App() {
     () => selectedPaymentLogs.reduce((sum, entry) => sum + toNumber(entry.amount), 0),
     [selectedPaymentLogs]
   );
+  const paymentRowsWithBalance = useMemo(() => {
+    if (!selectedSchedule) return [];
+    let cumulative = 0;
+    return selectedPaymentLogs.map((entry) => {
+      cumulative += toNumber(entry.amount);
+      return {
+        ...entry,
+        remainingAfter: Math.max(selectedSchedule.totalPaid - cumulative, 0),
+      };
+    });
+  }, [selectedPaymentLogs, selectedSchedule]);
   const remainingBalance = useMemo(() => {
     if (!selectedSchedule) return 0;
     return Math.max(selectedSchedule.totalPaid - totalActualPaid, 0);
@@ -892,10 +903,18 @@ function App() {
       return;
     }
 
+    const encodedAmount = toNumber(paymentEntry.amount);
+    const requiredAmount = Number((selectedSchedule?.paymentAmount || 0).toFixed(2));
+    const enteredAmount = Number(encodedAmount.toFixed(2));
+    if (enteredAmount <= 0) {
+      setStatusMessage("Enter a valid payment amount greater than zero.");
+      return;
+    }
+
     const newPayment = {
       id: `${Date.now()}`,
       date: paymentEntry.date,
-      amount: toNumber(paymentEntry.amount),
+      amount: encodedAmount,
       notes: paymentEntry.notes?.trim() || "",
       encodedAt: new Date().toISOString(),
     };
@@ -926,7 +945,14 @@ function App() {
         amount: "",
         notes: "",
       });
-      setStatusMessage("");
+      if (requiredAmount > 0 && enteredAmount !== requiredAmount) {
+        const direction = enteredAmount < requiredAmount ? "below" : "above";
+        setStatusMessage(
+          `Payment saved. Entered amount is ${direction} expected ${formatCurrency(requiredAmount)}.`
+        );
+      } else {
+        setStatusMessage("");
+      }
     } catch {
       setStatusMessage("Failed to save payment entry.");
     }
@@ -1606,7 +1632,9 @@ function App() {
             </section>
             <section className="card">
               <h2>Payment Updates</h2>
-              <p className="hint">Encode each payment by date so you can track remaining balance.</p>
+              <p className="hint">
+                Encode each payment by date. You may enter exact, lower, or higher amounts; balance auto-deducts.
+              </p>
               <div className="payment-entry-grid">
                 <label>
                   <span>Payment Date</span>
@@ -1650,19 +1678,21 @@ function App() {
                       <th>Date</th>
                       <th>Amount Paid</th>
                       <th>Notes</th>
+                      <th>Remaining Balance</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedPaymentLogs.length === 0 ? (
+                    {paymentRowsWithBalance.length === 0 ? (
                       <tr>
-                        <td colSpan={3}>No payment updates yet.</td>
+                        <td colSpan={4}>No payment updates yet.</td>
                       </tr>
                     ) : (
-                      selectedPaymentLogs.map((payment) => (
+                      paymentRowsWithBalance.map((payment) => (
                         <tr key={payment.id}>
                           <td>{formatDate(payment.date)}</td>
                           <td>{formatCurrency(toNumber(payment.amount))}</td>
                           <td>{payment.notes || "-"}</td>
+                          <td>{formatCurrency(payment.remainingAfter)}</td>
                         </tr>
                       ))
                     )}
@@ -1675,6 +1705,9 @@ function App() {
               schedule={selectedSchedule}
               values={selectedRecord}
             />
+            <p className="hint">
+              Projected Schedule: This table is a guide based on loan terms. Use Payment Updates above to encode actual borrower payments.
+            </p>
           </>
         ) : (
           <section className="card">
